@@ -29,12 +29,16 @@ struct ProtocolListView: View {
                         NavigationLink(destination: ProtocolView(
                             competitionId: competition.id,
                             protocolData: saved.protocolData,
-                            initialResultTimes: convertResultTimes(saved.resultTimes)
+                            initialResultTimes: saved.resultTimes
                         )) {
                             ProtocolCardView(savedProtocol: saved)
                         }
                         .buttonStyle(PlainButtonStyle())
                         .padding(.horizontal)
+                        
+                        // Кнопка отправки результатов
+                        submitResultsButton(saved: saved)
+                            .padding(.horizontal)
                     }
                     .padding(.vertical)
                 }
@@ -184,27 +188,96 @@ struct ProtocolListView: View {
         }
     }
     
-    // MARK: - Вспомогательные методы
+    // MARK: - Кнопка отправки результатов
     
-    /// Конвертирует словарь String -> String в UUID -> String для передачи в ProtocolView
-    private func convertResultTimes(_ times: [String: String]) -> [UUID: String] {
-        var result: [UUID: String] = [:]
-        
-        print("🔄 [ProtocolListView] Конвертация результатов:")
-        print("   Входящих результатов: \(times.count)")
-        
-        for (uuidString, time) in times {
-            if let uuid = UUID(uuidString: uuidString) {
-                result[uuid] = time
-                print("   ✅ UUID: \(uuidString) -> Время: \(time)")
+    @ViewBuilder
+    private func submitResultsButton(saved: SavedProtocol) -> some View {
+        VStack(spacing: 12) {
+            if protocolService.isSubmitting {
+                ProgressView("Отправка результатов...")
+                    .padding()
             } else {
-                print("   ❌ Не удалось конвертировать UUID: \(uuidString)")
+                Button(action: {
+                    Task {
+                        await submitResults(saved: saved)
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "paperplane.fill")
+                        Text("Отправить результаты")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(hasFilledResults(saved: saved) ? Color.green : Color.gray.opacity(0.3))
+                    .foregroundColor(hasFilledResults(saved: saved) ? .white : .gray)
+                    .cornerRadius(12)
+                }
+                .disabled(!hasFilledResults(saved: saved))
+                
+                // Статистика заполненных результатов
+//                let filledCount = saved.resultTimes.filter { isValidResult($0.value) }.count
+//                if filledCount > 0 {
+//                    Text("Заполнено результатов: \(filledCount)")
+//                        .font(.caption)
+//                        .foregroundColor(.secondary)
+//                }
+            }
+            
+            // Сообщения об успехе/ошибке
+            if let successMessage = protocolService.submitSuccessMessage {
+                Text(successMessage)
+                    .font(.caption)
+                    .foregroundColor(.green)
+                    .padding(.horizontal)
+                    .multilineTextAlignment(.center)
+            }
+            
+            if let errorMessage = protocolService.errorMessage, !protocolService.isLoading {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal)
+                    .multilineTextAlignment(.center)
             }
         }
+    }
+    
+    // MARK: - Вспомогательные методы
+    
+    private func hasFilledResults(saved: SavedProtocol) -> Bool {
+        return !saved.resultTimes.filter { isValidResult($0.value) }.isEmpty
+    }
+    
+    private func isValidResult(_ value: String) -> Bool {
+        // Проверяем, что значение не пустое и не является "пустым" результатом
+        guard !value.isEmpty else { return false }
         
-        print("   Итого сконвертировано: \(result.count)")
+        // Исключаем "пустые" значения времени (00:00:00 и его варианты)
+        if value == "00:00:00" || value == "00:00:0" || value == "0:00:00" {
+            return false
+        }
         
-        return result
+        // Исключаем "пустые" значения дистанции (0 м)
+        if value == "0 м" || value == "0м" {
+            return false
+        }
+        
+        return true
+    }
+    
+    private func submitResults(saved: SavedProtocol) async {
+        let success = await protocolService.submitFinishProtocol(
+            competitionId: competition.id,
+            protocolData: saved.protocolData,
+            resultTimes: saved.resultTimes
+        )
+        
+        if success {
+            print("✅ [ProtocolListView] Результаты успешно отправлены")
+        } else {
+            print("❌ [ProtocolListView] Ошибка при отправке результатов")
+        }
     }
 }
 

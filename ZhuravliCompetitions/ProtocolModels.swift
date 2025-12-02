@@ -29,7 +29,7 @@ struct ProtocolResponse: Codable {
 }
 
 struct Discipline: Codable, Identifiable {
-    let id = UUID()
+    let id: UUID
     let disciplineName: String
     let description: String
     let ageCategories: [AgeCategory]
@@ -38,9 +38,46 @@ struct Discipline: Codable, Identifiable {
         self.disciplineName = disciplineName
         self.description = description
         self.ageCategories = ageCategories
+        // Генерируем UUID для локального использования
+        self.id = UUID()
+    }
+    
+    // Вспомогательный инициализатор для тестовых данных с явным ID
+    init(id: String, disciplineName: String, description: String, ageCategories: [AgeCategory]) {
+        self.id = UUID(uuidString: id) ?? UUID()
+        self.disciplineName = disciplineName
+        self.description = description
+        self.ageCategories = ageCategories
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.disciplineName = try container.decode(String.self, forKey: .disciplineName)
+        self.description = try container.decode(String.self, forKey: .description)
+        self.ageCategories = try container.decode([AgeCategory].self, forKey: .ageCategories)
+        
+        // Декодируем discipline_id с сервера или используем сохраненный ID
+        if let savedId = try? container.decode(UUID.self, forKey: .id) {
+            self.id = savedId
+        } else if let disciplineIdString = try? container.decode(String.self, forKey: .disciplineId),
+                  let uuidFromServer = UUID(uuidString: disciplineIdString) {
+            self.id = uuidFromServer
+        } else {
+            self.id = UUID()
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(disciplineName, forKey: .disciplineName)
+        try container.encode(description, forKey: .description)
+        try container.encode(ageCategories, forKey: .ageCategories)
     }
     
     enum CodingKeys: String, CodingKey {
+        case id // Для локального хранилища
+        case disciplineId = "discipline_id" // Для декодирования с сервера
         case disciplineName = "discipline_name"
         case description
         case ageCategories = "age_categories"
@@ -108,6 +145,25 @@ struct Gender: Codable, Identifiable {
     }
 }
 
+// MARK: - Модель для отправки результата на бекенд
+struct FinishProtocolEntry: Codable {
+    let disciplineId: String
+    let disciplineType: String
+    let participantId: String
+    let participantName: String
+    let finishTime: String?
+    let meters: Int?
+    
+    enum CodingKeys: String, CodingKey {
+        case disciplineId = "discipline_id"
+        case disciplineType = "discipline_type"
+        case participantId = "participant_id"
+        case participantName = "participant_name"
+        case finishTime = "finish_time"
+        case meters
+    }
+}
+
 struct Participant: Codable, Identifiable {
     let id: UUID
     let fullName: String
@@ -133,6 +189,21 @@ struct Participant: Codable, Identifiable {
         )
     }
     
+    // Вспомогательный инициализатор для тестовых данных с явным ID
+    init(id: String, fullName: String, gender: String, dateOfBirth: String, club: String, applicationTime: String, teamName: String?) {
+        self.id = UUID(uuidString: id) ?? Participant.generateStableUUID(
+            fullName: fullName,
+            dateOfBirth: dateOfBirth,
+            club: club
+        )
+        self.fullName = fullName
+        self.gender = gender
+        self.dateOfBirth = dateOfBirth
+        self.club = club
+        self.applicationTime = applicationTime
+        self.teamName = teamName
+    }
+    
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         
@@ -144,12 +215,20 @@ struct Participant: Codable, Identifiable {
         self.applicationTime = try container.decode(String.self, forKey: .applicationTime)
         self.teamName = try? container.decode(String.self, forKey: .teamName)
         
-        // Пытаемся декодировать ID, если он есть (из локального хранилища)
+        // Пытаемся декодировать ID в следующем порядке:
+        // 1. Из локального хранилища (поле "id" как UUID)
         if let savedId = try? container.decode(UUID.self, forKey: .id) {
             self.id = savedId
             print("🔵 [Participant] Загружен сохраненный ID: \(savedId) для \(fullName)")
-        } else {
-            // Если ID нет (первая загрузка с сервера), генерируем стабильный UUID
+        }
+        // 2. С сервера (поле "participant_id" как String UUID)
+        else if let participantIdString = try? container.decode(String.self, forKey: .participantId),
+                let uuidFromServer = UUID(uuidString: participantIdString) {
+            self.id = uuidFromServer
+            print("🔵 [Participant] Загружен ID с сервера: \(uuidFromServer) для \(fullName)")
+        }
+        // 3. Генерируем стабильный UUID
+        else {
             self.id = Participant.generateStableUUID(
                 fullName: fullName,
                 dateOfBirth: dateOfBirth,
@@ -195,7 +274,8 @@ struct Participant: Codable, Identifiable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id
+        case id // Для локального хранилища
+        case participantId = "participant_id" // Для декодирования с сервера
         case fullName = "full_name"
         case gender
         case dateOfBirth = "date_of_birth"

@@ -10,9 +10,9 @@ import SwiftUI
 struct ProtocolView: View {
     let competitionId: String
     let protocolData: ProtocolResponse
-    @State private var resultTimes: [UUID: String] = [:]
+    @State private var resultTimes: [String: String] = [:]
     
-    init(competitionId: String, protocolData: ProtocolResponse, initialResultTimes: [UUID: String] = [:]) {
+    init(competitionId: String, protocolData: ProtocolResponse, initialResultTimes: [String: String] = [:]) {
         self.competitionId = competitionId
         self.protocolData = protocolData
         _resultTimes = State(initialValue: initialResultTimes)
@@ -20,9 +20,9 @@ struct ProtocolView: View {
         print("🔵 [ProtocolView] Инициализация для соревнования: \(competitionId)")
         print("   Загружено результатов: \(initialResultTimes.count)")
         if !initialResultTimes.isEmpty {
-            print("   Первые несколько UUID результатов:")
-            for (uuid, time) in initialResultTimes.prefix(3) {
-                print("   - UUID: \(uuid.uuidString) -> Время: \(time)")
+            print("   Первые несколько ID результатов:")
+            for (id, time) in initialResultTimes.prefix(3) {
+                print("   - ID: \(id) -> Время: \(time)")
             }
         }
     }
@@ -69,26 +69,21 @@ struct ProtocolView: View {
     
     // MARK: - Сохранение результатов
     
-    private func saveResultTimes(_ times: [UUID: String]) {
-        // Конвертируем UUID -> String в String -> String для сохранения
-        let timesDict = times.reduce(into: [String: String]()) { result, pair in
-            result[pair.key.uuidString] = pair.value
-        }
-        
+    private func saveResultTimes(_ times: [String: String]) {
         print("💾 [ProtocolView] Сохранение результатов для: \(competitionId)")
-        print("   Количество результатов: \(timesDict.count)")
+        print("   Количество результатов: \(times.count)")
         
         // Сохраняем результаты
         ProtocolStorageService.shared.updateResultTimes(
             competitionId: competitionId,
-            resultTimes: timesDict
+            resultTimes: times
         )
     }
 }
 
 struct DisciplineSection: View {
     let discipline: Discipline
-    @Binding var resultTimes: [UUID: String]
+    @Binding var resultTimes: [String: String]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -108,7 +103,7 @@ struct DisciplineSection: View {
             
             // Возрастные категории
             ForEach(discipline.ageCategories) { ageCategory in
-                AgeCategorySection(ageCategory: ageCategory, resultTimes: $resultTimes)
+                AgeCategorySection(ageCategory: ageCategory, disciplineName: discipline.disciplineName, resultTimes: $resultTimes)
             }
         }
         .padding()
@@ -120,7 +115,8 @@ struct DisciplineSection: View {
 
 struct AgeCategorySection: View {
     let ageCategory: AgeCategory
-    @Binding var resultTimes: [UUID: String]
+    let disciplineName: String
+    @Binding var resultTimes: [String: String]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -133,7 +129,7 @@ struct AgeCategorySection: View {
             
             // Полы
             ForEach(ageCategory.genders) { gender in
-                GenderSection(gender: gender, resultTimes: $resultTimes)
+                GenderSection(gender: gender, disciplineName: disciplineName, resultTimes: $resultTimes)
             }
         }
     }
@@ -141,7 +137,8 @@ struct AgeCategorySection: View {
 
 struct GenderSection: View {
     let gender: Gender
-    @Binding var resultTimes: [UUID: String]
+    let disciplineName: String
+    @Binding var resultTimes: [String: String]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -154,7 +151,7 @@ struct GenderSection: View {
             
             // Заплывы (heats)
             ForEach(Array(gender.heats.enumerated()), id: \.offset) { heatIndex, heat in
-                HeatView(heat: heat, heatNumber: heatIndex + 1, resultTimes: $resultTimes)
+                HeatView(heat: heat, heatNumber: heatIndex + 1, disciplineName: disciplineName, resultTimes: $resultTimes)
             }
         }
 //        .padding(.leading, 16)
@@ -164,7 +161,8 @@ struct GenderSection: View {
 struct HeatView: View {
     let heat: [Participant?]
     let heatNumber: Int
-    @Binding var resultTimes: [UUID: String]
+    let disciplineName: String
+    @Binding var resultTimes: [String: String]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -182,9 +180,10 @@ struct HeatView: View {
                     ParticipantRow(
                         participant: participant,
                         lane: laneIndex + 1,
+                        disciplineName: disciplineName,
                         resultTime: Binding(
-                            get: { resultTimes[participant.id] },
-                            set: { resultTimes[participant.id] = $0 }
+                            get: { resultTimes[participant.id.uuidString] },
+                            set: { resultTimes[participant.id.uuidString] = $0 }
                         )
                     )
                 } else {
@@ -217,11 +216,21 @@ struct HeatView: View {
 struct ParticipantRow: View {
     let participant: Participant
     let lane: Int
+    let disciplineName: String
     @Binding var resultTime: String?
     @State private var showTimePicker = false
+    @State private var showDistancePicker = false
     @State private var selectedMinutes: Int = 0
     @State private var selectedSeconds: Int = 0
     @State private var selectedMilliseconds: Int = 0
+    @State private var selectedDistance: Int = 0
+    
+    // Проверка, является ли это эстафетой (командная эстафета)
+    private var isRelay: Bool {
+        let isTeamRelay = participant.teamName != nil
+        let disciplineIsRelay = disciplineName.lowercased().contains("эстафет")
+        return isTeamRelay || disciplineIsRelay
+    }
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -265,21 +274,31 @@ struct ParticipantRow: View {
         .background(Color(.systemGray6))
         .cornerRadius(8)
         .overlay(alignment: .trailing) {
-            // Кнопка для ввода времени результата - в overlay, чтобы не влиять на layout
+            // Кнопка для ввода времени/метров результата - в overlay, чтобы не влиять на layout
             VStack {
                 Spacer()
                 Button(action: {
-                    // Инициализируем значения из текущего времени, если оно есть
-                    if let time = resultTime {
-                        parseTimeString(time)
+                    if isRelay {
+                        // Для эстафет - пикер метров
+                        if let distanceStr = resultTime {
+                            selectedDistance = parseDistanceString(distanceStr)
+                        } else {
+                            selectedDistance = 0
+                        }
+                        showDistancePicker = true
                     } else {
-                        selectedMinutes = 0
-                        selectedSeconds = 0
-                        selectedMilliseconds = 0
+                        // Для обычных соревнований - пикер времени
+                        if let time = resultTime {
+                            parseTimeString(time)
+                        } else {
+                            selectedMinutes = 0
+                            selectedSeconds = 0
+                            selectedMilliseconds = 0
+                        }
+                        showTimePicker = true
                     }
-                    showTimePicker = true
                 }) {
-                    Text(resultTime ?? "Внести время")
+                    Text(isRelay ? (resultTime ?? "Внести метры") : (resultTime ?? "Внести время"))
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(.white)
@@ -305,9 +324,20 @@ struct ParticipantRow: View {
             .presentationDetents([.fraction(0.5)])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showDistancePicker) {
+            DistancePickerView(
+                distance: $selectedDistance,
+                onSave: {
+                    resultTime = formatDistance(selectedDistance)
+                    showDistancePicker = false
+                }
+            )
+            .presentationDetents([.fraction(0.5)])
+            .presentationDragIndicator(.visible)
+        }
         .onAppear {
             print("👤 [ParticipantRow] \(participant.fullName)")
-            print("   UUID: \(participant.id.uuidString)")
+            print("   ID: \(participant.id)")
             print("   ResultTime: \(resultTime ?? "нет")")
         }
     }
@@ -328,6 +358,18 @@ struct ParticipantRow: View {
     
     private func formatTime(minutes: Int, seconds: Int, milliseconds: Int) -> String {
         return String(format: "%02d:%02d:%02d", minutes, seconds, milliseconds)
+    }
+    
+    private func parseDistanceString(_ distanceString: String) -> Int {
+        // Формат: "500 м" или просто "500"
+        let cleaned = distanceString.replacingOccurrences(of: " м", with: "")
+            .replacingOccurrences(of: "м", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        return Int(cleaned) ?? 0
+    }
+    
+    private func formatDistance(_ distance: Int) -> String {
+        return "\(distance) м"
     }
 }
 
@@ -428,6 +470,52 @@ struct TimePickerView: View {
     }
 }
 
+struct DistancePickerView: View {
+    @Binding var distance: Int
+    let onSave: () -> Void
+    
+    // Значения от 0 до 5000 с шагом 25
+    private let distances: [Int] = Array(stride(from: 0, through: 5000, by: 25))
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                Spacer()
+                    .frame(height: 10)
+                Text("Выберите расстояние")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                
+                Picker("Расстояние", selection: $distance) {
+                    ForEach(distances, id: \.self) { dist in
+                        Text("\(dist) м")
+                            .tag(dist)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(height: 140)
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+            
+            Button("Сохранить") {
+                onSave()
+            }
+            .foregroundColor(.white)
+            .font(.headline)
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(Color.blue)
+            .cornerRadius(10)
+            .padding(.horizontal)
+            .padding(.bottom)
+        }
+    }
+}
+
 #Preview {
     NavigationView {
         ProtocolView(
@@ -440,6 +528,7 @@ struct TimePickerView: View {
 func createTestProtocol() -> ProtocolResponse {
     // Первая дисциплина: 50 метров вольный стиль
     let discipline1 = Discipline(
+        id: "e2794ac2-32e3-4970-850b-5052efdbaad3",
         disciplineName: "50 метров вольный стиль 6-18 лет",
         description: "50 метров вольным стилем",
         ageCategories: [
@@ -452,6 +541,7 @@ func createTestProtocol() -> ProtocolResponse {
                             [
                                 nil,
                                 Participant(
+                                    id: "c75759c4-0fa2-4d1f-afc9-b4748030ddbb",
                                     fullName: "Козлов Тимофей Иванович",
                                     gender: "male",
                                     dateOfBirth: "15.01.2019",
@@ -473,6 +563,7 @@ func createTestProtocol() -> ProtocolResponse {
                         heats: [
                             [
                                 Participant(
+                                    id: "b16c2c4f-3c02-4fe3-86f2-26e4d229d406",
                                     fullName: "Смирнов Максим Дмитриевич",
                                     gender: "male",
                                     dateOfBirth: "03.09.2018",
@@ -481,6 +572,7 @@ func createTestProtocol() -> ProtocolResponse {
                                     teamName: nil
                                 ),
                                 Participant(
+                                    id: "2617d961-e2ba-4115-9b51-11bd7ef1c198",
                                     fullName: "Николаев Роман Максимович",
                                     gender: "male",
                                     dateOfBirth: "08.03.2017",
@@ -497,6 +589,7 @@ func createTestProtocol() -> ProtocolResponse {
                             [
                                 nil,
                                 Participant(
+                                    id: "00366ced-a341-4d99-8d6e-aae741c7ee61",
                                     fullName: "Семёнова Юлия Михайловна",
                                     gender: "female",
                                     dateOfBirth: "04.10.2016",
@@ -515,6 +608,7 @@ func createTestProtocol() -> ProtocolResponse {
     
     // Вторая дисциплина: 50 метров на спине
     let discipline2 = Discipline(
+        id: "d21ea4ef-dbd2-4c78-a332-0d14ad17c813",
         disciplineName: "50 метров на спине 6-18 лет",
         description: "50 метров на спине",
         ageCategories: [
@@ -526,6 +620,7 @@ func createTestProtocol() -> ProtocolResponse {
                         heats: [
                             [
                                 Participant(
+                                    id: "e5da8b45-3041-4cf1-9a5d-c5f3a4f52c62",
                                     fullName: "Орлов Фёдор Максимович",
                                     gender: "male",
                                     dateOfBirth: "09.05.2015",
@@ -534,6 +629,7 @@ func createTestProtocol() -> ProtocolResponse {
                                     teamName: nil
                                 ),
                                 Participant(
+                                    id: "5d017439-8361-491f-a6dc-61ae3f742c09",
                                     fullName: "Фёдоров Андрей Александрович",
                                     gender: "male",
                                     dateOfBirth: "05.08.2013",
@@ -542,6 +638,7 @@ func createTestProtocol() -> ProtocolResponse {
                                     teamName: nil
                                 ),
                                 Participant(
+                                    id: "2d175369-0779-4590-9c6c-28909a6f7c87",
                                     fullName: "Орлов Михаил Дмитриевич",
                                     gender: "male",
                                     dateOfBirth: "29.07.2015",
@@ -557,6 +654,7 @@ func createTestProtocol() -> ProtocolResponse {
                         heats: [
                             [
                                 Participant(
+                                    id: "0409ba25-9cff-48f3-9801-67a8a9ecb6f0",
                                     fullName: "Степанова Вероника Николаевна",
                                     gender: "female",
                                     dateOfBirth: "27.06.2015",
@@ -565,6 +663,7 @@ func createTestProtocol() -> ProtocolResponse {
                                     teamName: nil
                                 ),
                                 Participant(
+                                    id: "2b032b5c-31de-4489-ba3a-80d60a1c51d0",
                                     fullName: "Иванова Ольга Павловна",
                                     gender: "female",
                                     dateOfBirth: "07.02.2015",
@@ -582,6 +681,7 @@ func createTestProtocol() -> ProtocolResponse {
     
     // Третья дисциплина: 50 метров брасс
     let discipline3 = Discipline(
+        id: "405a9a16-a281-4525-a0e2-c7a782d30907",
         disciplineName: "50 метров брасс 7-18 лет",
         description: "50 метров брассом",
         ageCategories: [
@@ -594,6 +694,7 @@ func createTestProtocol() -> ProtocolResponse {
                             [
                                 nil,
                                 Participant(
+                                    id: "35f697b2-7377-45fb-a59d-3b7865339cd4",
                                     fullName: "Соколова Виктория Владимировна",
                                     gender: "female",
                                     dateOfBirth: "07.06.2011",
@@ -616,6 +717,7 @@ func createTestProtocol() -> ProtocolResponse {
                             [
                                 nil,
                                 Participant(
+                                    id: "91ca5938-9d57-489b-aeaa-901ff8c87b8a",
                                     fullName: "Петрова Надежда Ивановна",
                                     gender: "female",
                                     dateOfBirth: "04.10.2009",
