@@ -11,14 +11,17 @@ struct ProtocolView: View {
     let competitionId: String
     let protocolData: ProtocolResponse
     @State private var resultTimes: [String: String] = [:]
+    @State private var relayResults: [String: [RelayResultEntry]] = [:]
     
-    init(competitionId: String, protocolData: ProtocolResponse, initialResultTimes: [String: String] = [:]) {
+    init(competitionId: String, protocolData: ProtocolResponse, initialResultTimes: [String: String] = [:], initialRelayResults: [String: [RelayResultEntry]] = [:]) {
         self.competitionId = competitionId
         self.protocolData = protocolData
         _resultTimes = State(initialValue: initialResultTimes)
+        _relayResults = State(initialValue: initialRelayResults)
         
         print("🔵 [ProtocolView] Инициализация для соревнования: \(competitionId)")
-        print("   Загружено результатов: \(initialResultTimes.count)")
+        print("   Загружено individual результатов: \(initialResultTimes.count)")
+        print("   Загружено relay результатов: \(initialRelayResults.count)")
         if !initialResultTimes.isEmpty {
             print("   Первые несколько ID результатов:")
             for (id, time) in initialResultTimes.prefix(3) {
@@ -30,53 +33,39 @@ struct ProtocolView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // Заголовок соревнования
-//                VStack(alignment: .leading, spacing: 8) {
-//                    Text(protocolData.competitionName)
-//                        .font(.title)
-//                        .fontWeight(.bold)
-//                    
-//                    HStack {
-//                        Image(systemName: "calendar")
-//                            .foregroundColor(.blue)
-//                        Text(protocolData.competitionDate)
-//                            .font(.subheadline)
-//                    }
-//                    
-//                    HStack {
-//                        Image(systemName: "location.fill")
-//                            .foregroundColor(.blue)
-//                        Text(protocolData.location)
-//                            .font(.subheadline)
-//                    }
-//                }
-//                .padding()
-//                .background(Color(.systemGray6))
-//                .cornerRadius(12)
-                
                 // Дисциплины
                 ForEach(protocolData.disciplines) { discipline in
-                    DisciplineSection(discipline: discipline, resultTimes: $resultTimes)
+                    DisciplineSection(
+                        discipline: discipline,
+                        resultTimes: $resultTimes,
+                        relayResults: $relayResults
+                    )
                 }
             }
             .padding()
         }
         .onChange(of: resultTimes) { _, newValue in
             // Автоматически сохраняем результаты при изменении
-            saveResultTimes(newValue)
+            saveResults(resultTimes: newValue, relayResults: relayResults)
+        }
+        .onChange(of: relayResults) { _, newValue in
+            // Автоматически сохраняем relay результаты при изменении
+            saveResults(resultTimes: resultTimes, relayResults: newValue)
         }
     }
     
     // MARK: - Сохранение результатов
     
-    private func saveResultTimes(_ times: [String: String]) {
+    private func saveResults(resultTimes: [String: String], relayResults: [String: [RelayResultEntry]]) {
         print("💾 [ProtocolView] Сохранение результатов для: \(competitionId)")
-        print("   Количество результатов: \(times.count)")
+        print("   Individual результатов: \(resultTimes.count)")
+        print("   Relay результатов: \(relayResults.count)")
         
         // Сохраняем результаты
         ProtocolStorageService.shared.updateResultTimes(
             competitionId: competitionId,
-            resultTimes: times
+            resultTimes: resultTimes,
+            relayResults: relayResults
         )
     }
 }
@@ -84,6 +73,7 @@ struct ProtocolView: View {
 struct DisciplineSection: View {
     let discipline: Discipline
     @Binding var resultTimes: [String: String]
+    @Binding var relayResults: [String: [RelayResultEntry]]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -101,9 +91,14 @@ struct DisciplineSection: View {
             
             Divider()
             
-            // Возрастные категории
-            ForEach(discipline.ageCategories) { ageCategory in
-                AgeCategorySection(ageCategory: ageCategory, disciplineName: discipline.disciplineName, resultTimes: $resultTimes)
+            // Полы (новая иерархия: Discipline -> Gender -> AgeCategory -> heats)
+            ForEach(discipline.genders) { genderCategory in
+                GenderSection(
+                    genderCategory: genderCategory,
+                    disciplineName: discipline.disciplineName,
+                    resultTimes: $resultTimes,
+                    relayResults: $relayResults
+                )
             }
         }
         .padding()
@@ -113,45 +108,58 @@ struct DisciplineSection: View {
     }
 }
 
-struct AgeCategorySection: View {
-    let ageCategory: AgeCategory
+struct GenderSection: View {
+    let genderCategory: GenderCategory
     let disciplineName: String
     @Binding var resultTimes: [String: String]
+    @Binding var relayResults: [String: [RelayResultEntry]]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-//             Название возрастной категории
-            Text(ageCategory.categoryName)
+            // Название пола
+            Text(genderCategory.gender)
                 .font(.headline)
                 .fontWeight(.semibold)
                 .foregroundColor(.blue)
                 .padding(.top, 8)
             
-            // Полы
-            ForEach(ageCategory.genders) { gender in
-                GenderSection(gender: gender, disciplineName: disciplineName, resultTimes: $resultTimes)
+            // Возрастные категории
+            ForEach(genderCategory.ageCategories) { ageCategory in
+                AgeCategorySection(
+                    ageCategory: ageCategory,
+                    disciplineName: disciplineName,
+                    resultTimes: $resultTimes,
+                    relayResults: $relayResults
+                )
             }
         }
     }
 }
 
-struct GenderSection: View {
-    let gender: Gender
+struct AgeCategorySection: View {
+    let ageCategory: AgeCategory
     let disciplineName: String
     @Binding var resultTimes: [String: String]
+    @Binding var relayResults: [String: [RelayResultEntry]]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Название пола
-            Text(gender.gender)
+            // Название возрастной категории
+            Text(ageCategory.categoryName)
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
                 .padding(.top, 4)
             
             // Заплывы (heats)
-            ForEach(Array(gender.heats.enumerated()), id: \.offset) { heatIndex, heat in
-                HeatView(heat: heat, heatNumber: heatIndex + 1, disciplineName: disciplineName, resultTimes: $resultTimes)
+            ForEach(Array(ageCategory.heats.enumerated()), id: \.offset) { heatIndex, heat in
+                HeatView(
+                    heat: heat,
+                    heatNumber: heatIndex + 1,
+                    disciplineName: disciplineName,
+                    resultTimes: $resultTimes,
+                    relayResults: $relayResults
+                )
             }
         }
 //        .padding(.leading, 16)
@@ -163,6 +171,7 @@ struct HeatView: View {
     let heatNumber: Int
     let disciplineName: String
     @Binding var resultTimes: [String: String]
+    @Binding var relayResults: [String: [RelayResultEntry]]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -184,6 +193,10 @@ struct HeatView: View {
                         resultTime: Binding(
                             get: { resultTimes[participant.id.uuidString] },
                             set: { resultTimes[participant.id.uuidString] = $0 }
+                        ),
+                        relayResultEntries: Binding(
+                            get: { relayResults[participant.id.uuidString] ?? [] },
+                            set: { relayResults[participant.id.uuidString] = $0.isEmpty ? nil : $0 }
                         )
                     )
                 } else {
@@ -218,12 +231,13 @@ struct ParticipantRow: View {
     let lane: Int
     let disciplineName: String
     @Binding var resultTime: String?
+    @Binding var relayResultEntries: [RelayResultEntry]
     @State private var showTimePicker = false
-    @State private var showDistancePicker = false
+    @State private var showRelayPicker = false
     @State private var selectedMinutes: Int = 0
     @State private var selectedSeconds: Int = 0
     @State private var selectedMilliseconds: Int = 0
-    @State private var selectedDistance: Int = 0
+    @State private var selectedDistance: Int = 100 // По умолчанию 100 метров
     
     // Проверка, является ли это эстафетой (командная эстафета)
     private var isRelay: Bool {
@@ -232,62 +246,59 @@ struct ParticipantRow: View {
         return isTeamRelay || disciplineIsRelay
     }
     
+    // Общее количество метров для relay
+    private var totalMeters: Int {
+        relayResultEntries.reduce(0) { $0 + $1.distance }
+    }
+    
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Дорожка
-            Text("\(lane)")
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .frame(width: 24, height: 24)
-                .background(Color.blue)
-                .cornerRadius(4)
-            
-            VStack(alignment: .leading, spacing: 6) {
-                Text(participant.fullName)
-                    .font(.body)
-                    .fontWeight(.medium)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                // Дорожка
+                Text("\(lane)")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Color.blue)
+                    .cornerRadius(4)
                 
-                HStack(spacing: 12) {
-                    Label(participant.dateOfBirth, systemImage: "calendar")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Label(participant.club, systemImage: "building.2")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                HStack {
-                    Label(participant.applicationTime, systemImage: "clock")
-                        .font(.caption)
-                        .foregroundColor(.blue)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(participant.fullName)
+                        .font(.body)
                         .fontWeight(.medium)
-                }
-            }
-            
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 80)
-        .background(Color(.systemGray6))
-        .cornerRadius(8)
-        .overlay(alignment: .trailing) {
-            // Кнопка для ввода времени/метров результата - в overlay, чтобы не влиять на layout
-            VStack {
-                Spacer()
-                Button(action: {
+                    
                     if isRelay {
-                        // Для эстафет - пикер метров
-                        if let distanceStr = resultTime {
-                            selectedDistance = parseDistanceString(distanceStr)
-                        } else {
-                            selectedDistance = 0
-                        }
-                        showDistancePicker = true
+                        // Для эстафет показываем только дату рождения
+                        Label(participant.dateOfBirth, systemImage: "calendar")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     } else {
-                        // Для обычных соревнований - пикер времени
+                        // Для индивидуальных заплывов показываем все данные
+                        HStack(spacing: 12) {
+                            Label(participant.dateOfBirth, systemImage: "calendar")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Label(participant.club, systemImage: "building.2")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack {
+                            Label(participant.applicationTime, systemImage: "clock")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                                .fontWeight(.medium)
+                        }
+                    }
+                }
+                
+                Spacer(minLength: 0)
+                
+                // Для individual - показываем кнопку ввода времени справа, выровненную по центру
+                if !isRelay {
+                    Button(action: {
                         if let time = resultTime {
                             parseTimeString(time)
                         } else {
@@ -296,21 +307,121 @@ struct ParticipantRow: View {
                             selectedMilliseconds = 0
                         }
                         showTimePicker = true
+                    }) {
+                        Text(resultTime ?? "Внести время")
+                            .font(.body)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(resultTime != nil ? Color.green : Color.blue)
+                            .cornerRadius(10)
                     }
-                }) {
-                    Text(isRelay ? (resultTime ?? "Внести метры") : (resultTime ?? "Внести время"))
-                        .font(.caption)
-                        .fontWeight(.medium)
+                } else {
+                    // Для эстафет - кнопка "Добавить" справа, выровненная по центру
+                    Button(action: {
+                        selectedDistance = 100
+                        selectedMinutes = 0
+                        selectedSeconds = 0
+                        selectedMilliseconds = 0
+                        showRelayPicker = true
+                    }) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Добавить")
+                                .fontWeight(.semibold)
+                        }
+                        .font(.body)
                         .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(resultTime != nil ? Color.green : Color.blue)
-                        .cornerRadius(8)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                    }
                 }
-                .padding(.trailing, 8)
-                .padding(.bottom, 4)
+            }
+            
+            // Для relay - показываем список записей
+            if isRelay && !relayResultEntries.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    // Таблица с записями
+                    VStack(spacing: 4) {
+                        // Заголовок таблицы
+                        HStack {
+                            Text("Дистанция")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("Время")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("Итого")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .frame(width: 60)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(.systemGray5))
+                        
+                        // Записи
+                        ForEach(relayResultEntries) { entry in
+                            HStack {
+                                Text("\(entry.distance) м")
+                                    .font(.caption)
+                                Spacer()
+                                Text(entry.time)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Button(action: {
+                                    relayResultEntries.removeAll { $0.id == entry.id }
+                                }) {
+                                    Image(systemName: "trash")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                                .frame(width: 60)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                        }
+                        
+                        // Итоговая строка
+                        HStack {
+                            Text("Итого:")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Text("\(totalMeters) м")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(.blue)
+                            Spacer()
+                            Text("")
+                                .frame(width: 60)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(.systemGray6))
+                    }
+                    .background(Color(.systemBackground))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(.systemGray4), lineWidth: 1)
+                    )
+                }
             }
         }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
         .sheet(isPresented: $showTimePicker) {
             TimePickerView(
                 minutes: $selectedMinutes,
@@ -324,12 +435,17 @@ struct ParticipantRow: View {
             .presentationDetents([.fraction(0.5)])
             .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showDistancePicker) {
-            DistancePickerView(
+        .sheet(isPresented: $showRelayPicker) {
+            RelayPickerView(
                 distance: $selectedDistance,
+                minutes: $selectedMinutes,
+                seconds: $selectedSeconds,
+                milliseconds: $selectedMilliseconds,
                 onSave: {
-                    resultTime = formatDistance(selectedDistance)
-                    showDistancePicker = false
+                    let time = formatTime(minutes: selectedMinutes, seconds: selectedSeconds, milliseconds: selectedMilliseconds)
+                    let entry = RelayResultEntry(distance: selectedDistance, time: time)
+                    relayResultEntries.append(entry)
+                    showRelayPicker = false
                 }
             )
             .presentationDetents([.fraction(0.5)])
@@ -339,6 +455,7 @@ struct ParticipantRow: View {
             print("👤 [ParticipantRow] \(participant.fullName)")
             print("   ID: \(participant.id)")
             print("   ResultTime: \(resultTime ?? "нет")")
+            print("   Relay entries: \(relayResultEntries.count)")
         }
     }
     
@@ -358,18 +475,6 @@ struct ParticipantRow: View {
     
     private func formatTime(minutes: Int, seconds: Int, milliseconds: Int) -> String {
         return String(format: "%02d:%02d:%02d", minutes, seconds, milliseconds)
-    }
-    
-    private func parseDistanceString(_ distanceString: String) -> Int {
-        // Формат: "500 м" или просто "500"
-        let cleaned = distanceString.replacingOccurrences(of: " м", with: "")
-            .replacingOccurrences(of: "м", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        return Int(cleaned) ?? 0
-    }
-    
-    private func formatDistance(_ distance: Int) -> String {
-        return "\(distance) м"
     }
 }
 
@@ -470,31 +575,104 @@ struct TimePickerView: View {
     }
 }
 
-struct DistancePickerView: View {
+struct RelayPickerView: View {
     @Binding var distance: Int
+    @Binding var minutes: Int
+    @Binding var seconds: Int
+    @Binding var milliseconds: Int
     let onSave: () -> Void
     
-    // Значения от 0 до 5000 с шагом 25
-    private let distances: [Int] = Array(stride(from: 0, through: 5000, by: 25))
+    // Значения от 0 до 100 метров
+    private let distances: [Int] = Array(0...100)
     
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 8) {
                 Spacer()
                     .frame(height: 10)
-                Text("Выберите расстояние")
+                Text("Добавить результат")
                     .font(.headline)
                     .foregroundColor(.primary)
                     .padding(.top, 8)
                     .padding(.bottom, 8)
                 
-                Picker("Расстояние", selection: $distance) {
-                    ForEach(distances, id: \.self) { dist in
-                        Text("\(dist) м")
-                            .tag(dist)
+                HStack(spacing: 0) {
+                    // Пикер дистанции
+                    VStack(spacing: 4) {
+                        Text("Метры")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Picker("Дистанция", selection: $distance) {
+                            ForEach(distances, id: \.self) { dist in
+                                Text("\(dist)")
+                                    .tag(dist)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                        .frame(maxWidth: .infinity)
                     }
+                    
+                    // Пикер времени
+                    HStack(spacing: 0) {
+                        // Минуты
+                        VStack(spacing: 4) {
+                            Text("Минуты")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Picker("Минуты", selection: $minutes) {
+                                ForEach(0..<60) { minute in
+                                    Text(String(format: "%02d", minute))
+                                        .tag(minute)
+                                }
+                            }
+                            .pickerStyle(.wheel)
+                            .frame(maxWidth: .infinity)
+                        }
+                        
+                        Text(":")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 20)
+                        
+                        // Секунды
+                        VStack(spacing: 4) {
+                            Text("Секунды")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Picker("Секунды", selection: $seconds) {
+                                ForEach(0..<60) { second in
+                                    Text(String(format: "%02d", second))
+                                        .tag(second)
+                                }
+                            }
+                            .pickerStyle(.wheel)
+                            .frame(maxWidth: .infinity)
+                        }
+                        
+                        Text(":")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 20)
+                        
+                        // Миллисекунды
+                        VStack(spacing: 4) {
+                            Text("Миллисекунды")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Picker("Миллисекунды", selection: $milliseconds) {
+                                ForEach(0..<100) { ms in
+                                    Text(String(format: "%02d", ms))
+                                        .tag(ms)
+                                }
+                            }
+                            .pickerStyle(.wheel)
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .pickerStyle(.wheel)
                 .frame(height: 140)
             }
             .padding(.horizontal)
@@ -531,12 +709,12 @@ func createTestProtocol() -> ProtocolResponse {
         id: "e2794ac2-32e3-4970-850b-5052efdbaad3",
         disciplineName: "50 метров вольный стиль 6-18 лет",
         description: "50 метров вольным стилем",
-        ageCategories: [
-            AgeCategory(
-                categoryName: "6 лет и младше",
-                genders: [
-                    Gender(
-                        gender: "Мужчины",
+        genders: [
+            GenderCategory(
+                gender: "Мужчины",
+                ageCategories: [
+                    AgeCategory(
+                        categoryName: "6 лет и младше",
                         heats: [
                             [
                                 nil,
@@ -552,14 +730,9 @@ func createTestProtocol() -> ProtocolResponse {
                                 nil
                             ]
                         ]
-                    )
-                ]
-            ),
-            AgeCategory(
-                categoryName: "7-9 лет",
-                genders: [
-                    Gender(
-                        gender: "Мужчины",
+                    ),
+                    AgeCategory(
+                        categoryName: "7-9 лет",
                         heats: [
                             [
                                 Participant(
@@ -582,9 +755,14 @@ func createTestProtocol() -> ProtocolResponse {
                                 )
                             ]
                         ]
-                    ),
-                    Gender(
-                        gender: "Женщины",
+                    )
+                ]
+            ),
+            GenderCategory(
+                gender: "Женщины",
+                ageCategories: [
+                    AgeCategory(
+                        categoryName: "7-9 лет",
                         heats: [
                             [
                                 nil,
@@ -611,12 +789,12 @@ func createTestProtocol() -> ProtocolResponse {
         id: "d21ea4ef-dbd2-4c78-a332-0d14ad17c813",
         disciplineName: "50 метров на спине 6-18 лет",
         description: "50 метров на спине",
-        ageCategories: [
-            AgeCategory(
-                categoryName: "10-12 лет",
-                genders: [
-                    Gender(
-                        gender: "Мужчины",
+        genders: [
+            GenderCategory(
+                gender: "Мужчины",
+                ageCategories: [
+                    AgeCategory(
+                        categoryName: "10-12 лет",
                         heats: [
                             [
                                 Participant(
@@ -648,9 +826,14 @@ func createTestProtocol() -> ProtocolResponse {
                                 )
                             ]
                         ]
-                    ),
-                    Gender(
-                        gender: "Женщины",
+                    )
+                ]
+            ),
+            GenderCategory(
+                gender: "Женщины",
+                ageCategories: [
+                    AgeCategory(
+                        categoryName: "10-12 лет",
                         heats: [
                             [
                                 Participant(
@@ -684,12 +867,12 @@ func createTestProtocol() -> ProtocolResponse {
         id: "405a9a16-a281-4525-a0e2-c7a782d30907",
         disciplineName: "50 метров брасс 7-18 лет",
         description: "50 метров брассом",
-        ageCategories: [
-            AgeCategory(
-                categoryName: "13-15 лет",
-                genders: [
-                    Gender(
-                        gender: "Женщины",
+        genders: [
+            GenderCategory(
+                gender: "Женщины",
+                ageCategories: [
+                    AgeCategory(
+                        categoryName: "13-15 лет",
                         heats: [
                             [
                                 nil,
@@ -705,14 +888,9 @@ func createTestProtocol() -> ProtocolResponse {
                                 nil
                             ]
                         ]
-                    )
-                ]
-            ),
-            AgeCategory(
-                categoryName: "16-17 лет",
-                genders: [
-                    Gender(
-                        gender: "Женщины",
+                    ),
+                    AgeCategory(
+                        categoryName: "16-17 лет",
                         heats: [
                             [
                                 nil,

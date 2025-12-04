@@ -23,13 +23,14 @@ struct ProtocolListView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         // Информация о соревновании
-                        competitionInfoSection
+//                        competitionInfoSection
                         
                         // Карточка протокола
                         NavigationLink(destination: ProtocolView(
                             competitionId: competition.id,
                             protocolData: saved.protocolData,
-                            initialResultTimes: saved.resultTimes
+                            initialResultTimes: saved.resultTimes,
+                            initialRelayResults: saved.relayResults
                         )) {
                             ProtocolCardView(savedProtocol: saved)
                         }
@@ -45,8 +46,8 @@ struct ProtocolListView: View {
             } else {
                 // Протокола нет - показываем кнопку загрузки
                 VStack(spacing: 24) {
-                    competitionInfoSection
-                        .padding()
+//                    competitionInfoSection
+//                        .padding()
                     
                     Spacer()
                     
@@ -246,7 +247,9 @@ struct ProtocolListView: View {
     // MARK: - Вспомогательные методы
     
     private func hasFilledResults(saved: SavedProtocol) -> Bool {
-        return !saved.resultTimes.filter { isValidResult($0.value) }.isEmpty
+        let hasIndividual = !saved.resultTimes.filter { isValidResult($0.value) }.isEmpty
+        let hasRelay = !saved.relayResults.isEmpty
+        return hasIndividual || hasRelay
     }
     
     private func isValidResult(_ value: String) -> Bool {
@@ -270,7 +273,8 @@ struct ProtocolListView: View {
         let success = await protocolService.submitFinishProtocol(
             competitionId: competition.id,
             protocolData: saved.protocolData,
-            resultTimes: saved.resultTimes
+            resultTimes: saved.resultTimes,
+            relayResults: saved.relayResults
         )
         
         if success {

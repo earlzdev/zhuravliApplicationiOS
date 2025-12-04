@@ -144,7 +144,8 @@ class ProtocolService: ObservableObject {
     func submitFinishProtocol(
         competitionId: String,
         protocolData: ProtocolResponse,
-        resultTimes: [String: String]
+        resultTimes: [String: String],
+        relayResults: [String: [RelayResultEntry]]
     ) async -> Bool {
         await MainActor.run {
             isSubmitting = true
@@ -157,46 +158,63 @@ class ProtocolService: ObservableObject {
         
         // Проходим по всем дисциплинам и участникам
         for discipline in protocolData.disciplines {
-            for ageCategory in discipline.ageCategories {
-                for gender in ageCategory.genders {
-                    for heat in gender.heats {
+            for genderCategory in discipline.genders {
+                for ageCategory in genderCategory.ageCategories {
+                    for heat in ageCategory.heats {
                         for participant in heat.compactMap({ $0 }) {
-                            // Проверяем, есть ли результат для этого участника
-                            guard let resultValue = resultTimes[participant.id.uuidString],
-                                  isValidResult(resultValue) else {
-                                continue
-                            }
-                            
                             // Определяем тип дисциплины (эстафета или индивидуальная)
                             let isRelay = participant.teamName != nil || 
                                          discipline.disciplineName.lowercased().contains("эстафет")
                             
                             // Создаем запись для отправки
-                            let entry: FinishProtocolEntry
+                            let entry: FinishProtocolEntry?
+                            
                             if isRelay {
-                                // Для эстафет отправляем метры
-                                let meters = parseDistanceString(resultValue)
+                                // Для эстафет проверяем наличие relay результатов
+                                guard let relayEntries = relayResults[participant.id.uuidString],
+                                      !relayEntries.isEmpty else {
+                                    continue
+                                }
+                                
+                                // Вычисляем общее количество метров
+                                let totalMeters = relayEntries.reduce(0) { $0 + $1.distance }
+                                
+                                // Формируем строку с временами в секундах
+                                let relayResultsString = relayEntries.map { entry in
+                                    // Конвертируем время из mm:ss:ms в секунды
+                                    timeStringToSeconds(entry.time)
+                                }.joined(separator: ",")
+                                
                                 entry = FinishProtocolEntry(
                                     disciplineId: discipline.id.uuidString,
                                     disciplineType: "relay",
                                     participantId: participant.id.uuidString,
                                     participantName: participant.fullName,
                                     finishTime: nil,
-                                    meters: meters
+                                    meters: totalMeters,
+                                    relayResults: relayResultsString
                                 )
                             } else {
-                                // Для индивидуальных дисциплин отправляем время
+                                // Для индивидуальных дисциплин проверяем наличие результата
+                                guard let resultValue = resultTimes[participant.id.uuidString],
+                                      isValidResult(resultValue) else {
+                                    continue
+                                }
+                                
                                 entry = FinishProtocolEntry(
                                     disciplineId: discipline.id.uuidString,
                                     disciplineType: "individual",
                                     participantId: participant.id.uuidString,
                                     participantName: participant.fullName,
                                     finishTime: resultValue,
-                                    meters: nil
+                                    meters: nil,
+                                    relayResults: nil
                                 )
                             }
                             
-                            entries.append(entry)
+                            if let entry = entry {
+                                entries.append(entry)
+                            }
                         }
                     }
                 }
@@ -220,6 +238,27 @@ class ProtocolService: ObservableObject {
         }
         
         return success
+    }
+    
+    // MARK: - Вспомогательные методы для конвертации времени
+    
+    private func timeStringToSeconds(_ timeString: String) -> String {
+        // Формат: mm:ss:ms -> конвертируем в формат "секунды.миллисекунды"
+        let components = timeString.replacingOccurrences(of: ".", with: ":").split(separator: ":")
+        
+        guard components.count >= 2 else {
+            return "0.00"
+        }
+        
+        let minutes = Int(components[0]) ?? 0
+        let seconds = Int(components[1]) ?? 0
+        let milliseconds = components.count >= 3 ? (Int(components[2]) ?? 0) : 0
+        
+        // Вычисляем общее количество секунд (без миллисекунд)
+        let totalSeconds = minutes * 60 + seconds
+        
+        // Форматируем как "секунды.миллисекунды" (например, "73.12")
+        return String(format: "%d.%02d", totalSeconds, milliseconds)
     }
     
     private func sendAllEntries(competitionId: String, entries: [FinishProtocolEntry]) async -> Bool {
@@ -308,13 +347,6 @@ class ProtocolService: ObservableObject {
             }
             return false
         }
-    }
-    
-    private func parseDistanceString(_ distanceString: String) -> Int {
-        let cleaned = distanceString.replacingOccurrences(of: " м", with: "")
-            .replacingOccurrences(of: "м", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        return Int(cleaned) ?? 0
     }
     
     private func isValidResult(_ value: String) -> Bool {

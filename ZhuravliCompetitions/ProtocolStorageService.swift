@@ -11,13 +11,15 @@ import Foundation
 struct SavedProtocol: Codable, Identifiable {
     let id: String // ID соревнования
     let protocolData: ProtocolResponse
-    var resultTimes: [String: String] // UUID участника -> время результата
+    var resultTimes: [String: String] // UUID участника -> время результата (для individual)
+    var relayResults: [String: [RelayResultEntry]] // UUID участника -> массив записей (для relay)
     var savedAt: Date
     
-    init(id: String, protocolData: ProtocolResponse, resultTimes: [String: String] = [:]) {
+    init(id: String, protocolData: ProtocolResponse, resultTimes: [String: String] = [:], relayResults: [String: [RelayResultEntry]] = [:]) {
         self.id = id
         self.protocolData = protocolData
         self.resultTimes = resultTimes
+        self.relayResults = relayResults
         self.savedAt = Date()
     }
 }
@@ -95,18 +97,22 @@ class ProtocolStorageService {
     
     // MARK: - Обновление результатов
     
-    func updateResultTimes(competitionId: String, resultTimes: [String: String]) {
+    func updateResultTimes(competitionId: String, resultTimes: [String: String], relayResults: [String: [RelayResultEntry]]? = nil) {
         guard var savedProtocol = loadProtocol(competitionId: competitionId) else {
             print("❌ [ProtocolStorage] Не удалось загрузить протокол для обновления: \(competitionId)")
             return
         }
         
         savedProtocol.resultTimes = resultTimes
+        if let relayResults = relayResults {
+            savedProtocol.relayResults = relayResults
+        }
         savedProtocol.savedAt = Date() // Обновляем время сохранения
         saveProtocol(savedProtocol)
         
         print("✅ [ProtocolStorage] Результаты обновлены для: \(competitionId)")
-        print("   Всего результатов: \(resultTimes.count)")
+        print("   Individual результатов: \(resultTimes.count)")
+        print("   Relay результатов: \(savedProtocol.relayResults.count)")
     }
     
     // MARK: - Удаление протокола

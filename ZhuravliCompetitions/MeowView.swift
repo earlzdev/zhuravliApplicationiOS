@@ -12,6 +12,10 @@ struct MeowView: View {
         NavigationView {
             VStack {
                 Spacer()
+                Image("zhuzhka")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 300, maxHeight: 300)
                 Text("Мяу")
                     .font(.largeTitle)
                     .fontWeight(.bold)

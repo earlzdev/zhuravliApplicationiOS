@@ -32,29 +32,29 @@ struct Discipline: Codable, Identifiable {
     let id: UUID
     let disciplineName: String
     let description: String
-    let ageCategories: [AgeCategory]
+    let genders: [GenderCategory]
     
-    init(disciplineName: String, description: String, ageCategories: [AgeCategory]) {
+    init(disciplineName: String, description: String, genders: [GenderCategory]) {
         self.disciplineName = disciplineName
         self.description = description
-        self.ageCategories = ageCategories
+        self.genders = genders
         // Генерируем UUID для локального использования
         self.id = UUID()
     }
     
     // Вспомогательный инициализатор для тестовых данных с явным ID
-    init(id: String, disciplineName: String, description: String, ageCategories: [AgeCategory]) {
+    init(id: String, disciplineName: String, description: String, genders: [GenderCategory]) {
         self.id = UUID(uuidString: id) ?? UUID()
         self.disciplineName = disciplineName
         self.description = description
-        self.ageCategories = ageCategories
+        self.genders = genders
     }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.disciplineName = try container.decode(String.self, forKey: .disciplineName)
         self.description = try container.decode(String.self, forKey: .description)
-        self.ageCategories = try container.decode([AgeCategory].self, forKey: .ageCategories)
+        self.genders = try container.decode([GenderCategory].self, forKey: .genders)
         
         // Декодируем discipline_id с сервера или используем сохраненный ID
         if let savedId = try? container.decode(UUID.self, forKey: .id) {
@@ -72,7 +72,7 @@ struct Discipline: Codable, Identifiable {
         try container.encode(id, forKey: .id)
         try container.encode(disciplineName, forKey: .disciplineName)
         try container.encode(description, forKey: .description)
-        try container.encode(ageCategories, forKey: .ageCategories)
+        try container.encode(genders, forKey: .genders)
     }
     
     enum CodingKeys: String, CodingKey {
@@ -80,6 +80,22 @@ struct Discipline: Codable, Identifiable {
         case disciplineId = "discipline_id" // Для декодирования с сервера
         case disciplineName = "discipline_name"
         case description
+        case genders
+    }
+}
+
+struct GenderCategory: Codable, Identifiable {
+    let id = UUID()
+    let gender: String
+    let ageCategories: [AgeCategory]
+    
+    init(gender: String, ageCategories: [AgeCategory]) {
+        self.gender = gender
+        self.ageCategories = ageCategories
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case gender
         case ageCategories = "age_categories"
     }
 }
@@ -87,33 +103,16 @@ struct Discipline: Codable, Identifiable {
 struct AgeCategory: Codable, Identifiable {
     let id = UUID()
     let categoryName: String
-    let genders: [Gender]
-    
-    init(categoryName: String, genders: [Gender]) {
-        self.categoryName = categoryName
-        self.genders = genders
-    }
-    
-    enum CodingKeys: String, CodingKey {
-        case categoryName = "category_name"
-        case genders
-    }
-}
-
-struct Gender: Codable, Identifiable {
-    let id = UUID()
-    let gender: String
     let heats: [[Participant?]]
     
-    // Обычный инициализатор для создания вручную
-    init(gender: String, heats: [[Participant?]]) {
-        self.gender = gender
+    init(categoryName: String, heats: [[Participant?]]) {
+        self.categoryName = categoryName
         self.heats = heats
     }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        gender = try container.decode(String.self, forKey: .gender)
+        categoryName = try container.decode(String.self, forKey: .categoryName)
         
         // Кастомное декодирование heats для обработки null значений
         var heatsArray: [[Participant?]] = []
@@ -140,8 +139,21 @@ struct Gender: Codable, Identifiable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case gender
+        case categoryName = "category_name"
         case heats
+    }
+}
+
+// MARK: - Модель для relay результата (одна запись - одна сотка с временем)
+struct RelayResultEntry: Codable, Identifiable, Equatable {
+    let id: UUID
+    let distance: Int // Дистанция в метрах (0-100)
+    let time: String // Время в формате mm:ss:ms
+    
+    init(distance: Int, time: String) {
+        self.id = UUID()
+        self.distance = distance
+        self.time = time
     }
 }
 
@@ -153,6 +165,7 @@ struct FinishProtocolEntry: Codable {
     let participantName: String
     let finishTime: String?
     let meters: Int?
+    let relayResults: String? // Времена для каждых 100 метров в формате "67,68,69,34" (секунды)
     
     enum CodingKeys: String, CodingKey {
         case disciplineId = "discipline_id"
@@ -161,6 +174,7 @@ struct FinishProtocolEntry: Codable {
         case participantName = "participant_name"
         case finishTime = "finish_time"
         case meters
+        case relayResults = "relay_results"
     }
 }
 

@@ -66,7 +66,7 @@ struct ProtocolCardView: View {
                     Image(systemName: "clock.fill")
                         .foregroundColor(.green)
                         .frame(width: 20)
-                    Text("Результатов: \(savedProtocol.resultTimes.count)")
+                    Text("Результатов: \(savedProtocol.resultTimes.count + savedProtocol.relayResults.count)")
                         .font(.subheadline)
                         .fontWeight(.medium)
                 }
