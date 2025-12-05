@@ -8,6 +8,7 @@
 import Foundation
 
 struct Constants {
-    static let baseUrl = "http://0.0.0.0:8000"
+    static let baseUrl = "http://185.221.155.143:8000"
+//    static let baseUrl = "http://0.0.0.0:8000"
 }
 

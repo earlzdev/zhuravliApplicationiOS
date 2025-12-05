@@ -166,12 +166,15 @@ class ProtocolService: ObservableObject {
                             let isRelay = participant.teamName != nil || 
                                          discipline.disciplineName.lowercased().contains("эстафет")
                             
+                            // Используем составной ключ: disciplineId-participantId
+                            let resultKey = "\(discipline.id.uuidString)-\(participant.id.uuidString)"
+                            
                             // Создаем запись для отправки
                             let entry: FinishProtocolEntry?
                             
                             if isRelay {
                                 // Для эстафет проверяем наличие relay результатов
-                                guard let relayEntries = relayResults[participant.id.uuidString],
+                                guard let relayEntries = relayResults[resultKey],
                                       !relayEntries.isEmpty else {
                                     continue
                                 }
@@ -196,7 +199,7 @@ class ProtocolService: ObservableObject {
                                 )
                             } else {
                                 // Для индивидуальных дисциплин проверяем наличие результата
-                                guard let resultValue = resultTimes[participant.id.uuidString],
+                                guard let resultValue = resultTimes[resultKey],
                                       isValidResult(resultValue) else {
                                     continue
                                 }

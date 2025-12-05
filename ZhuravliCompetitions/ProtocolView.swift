@@ -16,15 +16,62 @@ struct ProtocolView: View {
     init(competitionId: String, protocolData: ProtocolResponse, initialResultTimes: [String: String] = [:], initialRelayResults: [String: [RelayResultEntry]] = [:]) {
         self.competitionId = competitionId
         self.protocolData = protocolData
-        _resultTimes = State(initialValue: initialResultTimes)
-        _relayResults = State(initialValue: initialRelayResults)
+        
+        // Миграция старых данных: конвертируем ключи из формата participantId в disciplineId-participantId
+        var migratedResultTimes: [String: String] = [:]
+        var migratedRelayResults: [String: [RelayResultEntry]] = [:]
+        
+        // Проверяем, есть ли старые ключи (только UUID участника, без дефиса)
+        let hasOldFormat = initialResultTimes.keys.contains { !$0.contains("-") } || 
+                          initialRelayResults.keys.contains { !$0.contains("-") }
+        
+        if hasOldFormat {
+            print("🔄 [ProtocolView] Обнаружены старые ключи, выполняется миграция...")
+            
+            // Проходим по всем дисциплинам и участникам для создания новых ключей
+            for discipline in protocolData.disciplines {
+                for genderCategory in discipline.genders {
+                    for ageCategory in genderCategory.ageCategories {
+                        for heat in ageCategory.heats {
+                            for participant in heat.compactMap({ $0 }) {
+                                let oldKey = participant.id.uuidString
+                                let newKey = "\(discipline.id.uuidString)-\(participant.id.uuidString)"
+                                
+                                // Мигрируем individual результаты
+                                if let time = initialResultTimes[oldKey] {
+                                    migratedResultTimes[newKey] = time
+                                }
+                                
+                                // Мигрируем relay результаты
+                                if let relayEntries = initialRelayResults[oldKey] {
+                                    migratedRelayResults[newKey] = relayEntries
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            print("✅ [ProtocolView] Миграция завершена:")
+            print("   Старых individual результатов: \(initialResultTimes.count)")
+            print("   Новых individual результатов: \(migratedResultTimes.count)")
+            print("   Старых relay результатов: \(initialRelayResults.count)")
+            print("   Новых relay результатов: \(migratedRelayResults.count)")
+        } else {
+            // Данные уже в новом формате
+            migratedResultTimes = initialResultTimes
+            migratedRelayResults = initialRelayResults
+        }
+        
+        _resultTimes = State(initialValue: migratedResultTimes)
+        _relayResults = State(initialValue: migratedRelayResults)
         
         print("🔵 [ProtocolView] Инициализация для соревнования: \(competitionId)")
-        print("   Загружено individual результатов: \(initialResultTimes.count)")
-        print("   Загружено relay результатов: \(initialRelayResults.count)")
-        if !initialResultTimes.isEmpty {
+        print("   Загружено individual результатов: \(migratedResultTimes.count)")
+        print("   Загружено relay результатов: \(migratedRelayResults.count)")
+        if !migratedResultTimes.isEmpty {
             print("   Первые несколько ID результатов:")
-            for (id, time) in initialResultTimes.prefix(3) {
+            for (id, time) in migratedResultTimes.prefix(3) {
                 print("   - ID: \(id) -> Время: \(time)")
             }
         }
@@ -95,6 +142,7 @@ struct DisciplineSection: View {
             ForEach(discipline.genders) { genderCategory in
                 GenderSection(
                     genderCategory: genderCategory,
+                    disciplineId: discipline.id,
                     disciplineName: discipline.disciplineName,
                     resultTimes: $resultTimes,
                     relayResults: $relayResults
@@ -110,6 +158,7 @@ struct DisciplineSection: View {
 
 struct GenderSection: View {
     let genderCategory: GenderCategory
+    let disciplineId: UUID
     let disciplineName: String
     @Binding var resultTimes: [String: String]
     @Binding var relayResults: [String: [RelayResultEntry]]
@@ -127,6 +176,7 @@ struct GenderSection: View {
             ForEach(genderCategory.ageCategories) { ageCategory in
                 AgeCategorySection(
                     ageCategory: ageCategory,
+                    disciplineId: disciplineId,
                     disciplineName: disciplineName,
                     resultTimes: $resultTimes,
                     relayResults: $relayResults
@@ -138,6 +188,7 @@ struct GenderSection: View {
 
 struct AgeCategorySection: View {
     let ageCategory: AgeCategory
+    let disciplineId: UUID
     let disciplineName: String
     @Binding var resultTimes: [String: String]
     @Binding var relayResults: [String: [RelayResultEntry]]
@@ -156,6 +207,7 @@ struct AgeCategorySection: View {
                 HeatView(
                     heat: heat,
                     heatNumber: heatIndex + 1,
+                    disciplineId: disciplineId,
                     disciplineName: disciplineName,
                     resultTimes: $resultTimes,
                     relayResults: $relayResults
@@ -169,9 +221,15 @@ struct AgeCategorySection: View {
 struct HeatView: View {
     let heat: [Participant?]
     let heatNumber: Int
+    let disciplineId: UUID
     let disciplineName: String
     @Binding var resultTimes: [String: String]
     @Binding var relayResults: [String: [RelayResultEntry]]
+    
+    // Генерируем составной ключ для результата участника в этой дисциплине
+    private func resultKey(for participantId: UUID) -> String {
+        return "\(disciplineId.uuidString)-\(participantId.uuidString)"
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -186,17 +244,19 @@ struct HeatView: View {
             // Участники в заплыве (показываем все дорожки, включая пустые)
             ForEach(Array(heat.enumerated()), id: \.offset) { laneIndex, participant in
                 if let participant = participant {
+                    let key = resultKey(for: participant.id)
                     ParticipantRow(
                         participant: participant,
                         lane: laneIndex + 1,
+                        disciplineId: disciplineId,
                         disciplineName: disciplineName,
                         resultTime: Binding(
-                            get: { resultTimes[participant.id.uuidString] },
-                            set: { resultTimes[participant.id.uuidString] = $0 }
+                            get: { resultTimes[key] },
+                            set: { resultTimes[key] = $0 }
                         ),
                         relayResultEntries: Binding(
-                            get: { relayResults[participant.id.uuidString] ?? [] },
-                            set: { relayResults[participant.id.uuidString] = $0.isEmpty ? nil : $0 }
+                            get: { relayResults[key] ?? [] },
+                            set: { relayResults[key] = $0.isEmpty ? nil : $0 }
                         )
                     )
                 } else {
@@ -229,6 +289,7 @@ struct HeatView: View {
 struct ParticipantRow: View {
     let participant: Participant
     let lane: Int
+    let disciplineId: UUID
     let disciplineName: String
     @Binding var resultTime: String?
     @Binding var relayResultEntries: [RelayResultEntry]
